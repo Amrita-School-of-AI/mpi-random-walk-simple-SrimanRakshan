@@ -3,77 +3,84 @@
 #include <ctime>   // For time
 #include <mpi.h>
 
-void walker_process();
-void controller_process();
+void run_walker();
+void run_manager();
 
-int domain_size;
-int max_steps;
-int world_rank;
-int world_size;
+int boundary_limit;
+int step_limit;
+int proc_rank;
+int proc_count;
 
 int main(int argc, char **argv)
 {
-    // Initialize the MPI environment
     MPI_Init(&argc, &argv);
-
-    // Get the number of processes and the rank of this process
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &proc_count);
+    MPI_Comm_rank(MPI_COMM_WORLD, &proc_rank);
 
     if (argc != 3)
     {
-        if (world_rank == 0)
+        if (proc_rank == 0)
         {
-            std::cerr << "Usage: mpirun -np <p> " << argv[0] << " <domain_size> <max_steps>" << std::endl;
+            std::cerr << "Usage: mpirun -np <p> " << argv[0] << " <boundary_limit> <step_limit>" << std::endl;
         }
         MPI_Finalize();
         return 1;
     }
 
-    domain_size = atoi(argv[1]);
-    max_steps = atoi(argv[2]);
+    boundary_limit = atoi(argv[1]);
+    step_limit = atoi(argv[2]);
 
-    if (world_rank == 0)
+    if (proc_rank == 0)
     {
-        // Rank 0 is the controller
-        controller_process();
+        run_manager();
     }
     else
     {
-        // All other ranks are walkers
-        walker_process();
+        run_walker();
     }
 
-    // Finalize the MPI environment
     MPI_Finalize();
     return 0;
 }
 
-void walker_process()
+void run_walker()
 {
-    // Seed the random number generator.
-    // Using rank ensures each walker gets a different sequence of random numbers.
-    srand(time(NULL) + world_rank);
+    srand(time(NULL) + proc_rank);
+    int current_pos = 0;
 
-    // TODO: Implement the random walk logic for a walker process.
-    // 1. Initialize the walker's position to 0.
-    // 2. Loop for a maximum of `max_steps`.
-    // 3. In each step, randomly move left (-1) or right (+1).
-    // 4. Check if the walker has moved outside the domain [-domain_size, +domain_size].
-    // 5. If the walk is finished (either out of bounds or max_steps reached):
-    //    a. Print a message including the keyword "finished". For example:
-    //       "Rank X: Walker finished in Y steps."
-    //    b. Send an integer message to the controller (rank 0) to signal completion.
-    //    c. Break the loop.
+    for (int step_num = 1; step_num <= step_limit; ++step_num)
+    {
+        int move_dir = (rand() % 2 == 0) ? -1 : 1;
+        current_pos += move_dir;
+
+        if (current_pos < -boundary_limit || current_pos > boundary_limit)
+        {
+            std::cout << "Process " << proc_rank << ": Walker finished in " << step_num << " steps." << std::endl;
+            int done_flag = 1;
+            MPI_Send(&done_flag, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+            break;
+        }
+
+        if (step_num == step_limit)
+        {
+            std::cout << "Process " << proc_rank << ": Walker finished in " << step_num << " steps." << std::endl;
+            int done_flag = 1;
+            MPI_Send(&done_flag, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+        }
+    }
 }
 
-void controller_process()
+void run_manager()
 {
-    // TODO: Implement the logic for the controller process.
-    // 1. Determine the number of walkers (world_size - 1).
-    // 2. Loop that many times to receive a message from each walker.
-    // 3. Use MPI_Recv to wait for a message. Use MPI_ANY_SOURCE to accept
-    //    a message from any walker that finishes.
-    // 4. After receiving messages from all walkers, print a final summary message.
-    //    For example: "Controller: All X walkers have finished."
+    int total_walkers = proc_count - 1;
+    int walkers_done = 0;
+
+    while (walkers_done < total_walkers)
+    {
+        int recv_flag;
+        MPI_Recv(&recv_flag, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        ++walkers_done;
+    }
+
+    std::cout << "Manager: All " << total_walkers << " walkers have completed their journey." << std::endl;
 }
