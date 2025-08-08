@@ -3,84 +3,84 @@
 #include <ctime>   // For time
 #include <mpi.h>
 
-void run_walker();
-void run_manager();
+void walker_process();
+void controller_process();
 
-int boundary_limit;
-int step_limit;
-int proc_rank;
-int proc_count;
+int domain_size;
+int max_steps;
+int world_rank;
+int world_size;
 
 int main(int argc, char **argv)
 {
     MPI_Init(&argc, &argv);
-    MPI_Comm_size(MPI_COMM_WORLD, &proc_count);
-    MPI_Comm_rank(MPI_COMM_WORLD, &proc_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
     if (argc != 3)
     {
-        if (proc_rank == 0)
+        if (world_rank == 0)
         {
-            std::cerr << "Usage: mpirun -np <p> " << argv[0] << " <boundary_limit> <step_limit>" << std::endl;
+            std::cerr << "Usage: mpirun -np <p> " << argv[0] << " <domain_size> <max_steps>" << std::endl;
         }
         MPI_Finalize();
         return 1;
     }
 
-    boundary_limit = atoi(argv[1]);
-    step_limit = atoi(argv[2]);
+    domain_size = atoi(argv[1]);
+    max_steps = atoi(argv[2]);
 
-    if (proc_rank == 0)
+    if (world_rank == 0)
     {
-        run_manager();
+        controller_process();
     }
     else
     {
-        run_walker();
+        walker_process();
     }
 
     MPI_Finalize();
     return 0;
 }
 
-void run_walker()
+void walker_process()
 {
-    srand(time(NULL) + proc_rank);
-    int current_pos = 0;
+    srand(time(NULL) + world_rank);
+    int position = 0;
 
-    for (int step_num = 1; step_num <= step_limit; ++step_num)
+    for (int step = 1; step <= max_steps; ++step)
     {
-        int move_dir = (rand() % 2 == 0) ? -1 : 1;
-        current_pos += move_dir;
+        int direction = (rand() % 2 == 0) ? -1 : 1;
+        position += direction;
 
-        if (current_pos < -boundary_limit || current_pos > boundary_limit)
+        if (position < -domain_size || position > domain_size)
         {
-            std::cout << "Process " << proc_rank << ": Walker finished in " << step_num << " steps." << std::endl;
-            int done_flag = 1;
-            MPI_Send(&done_flag, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+            std::cout << "Rank " << world_rank << ": Walker finished in " << step << " steps." << std::endl;
+            int finished_signal = 1;
+            MPI_Send(&finished_signal, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
             break;
         }
 
-        if (step_num == step_limit)
+        if (step == max_steps)
         {
-            std::cout << "Process " << proc_rank << ": Walker finished in " << step_num << " steps." << std::endl;
-            int done_flag = 1;
-            MPI_Send(&done_flag, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+            std::cout << "Rank " << world_rank << ": Walker finished in " << step << " steps." << std::endl;
+            int finished_signal = 1;
+            MPI_Send(&finished_signal, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
         }
     }
 }
 
-void run_manager()
+void controller_process()
 {
-    int total_walkers = proc_count - 1;
-    int walkers_done = 0;
+    int num_walkers = world_size - 1;
+    int received = 0;
 
-    while (walkers_done < total_walkers)
+    while (received < num_walkers)
     {
-        int recv_flag;
-        MPI_Recv(&recv_flag, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        ++walkers_done;
+        int buffer;
+        MPI_Recv(&buffer, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        ++received;
     }
 
-    std::cout << "Manager: All " << total_walkers << " walkers have completed their journey." << std::endl;
+    std::cout << "Controller: All " << num_walkers << " walkers have finished." << std::endl;
 }
